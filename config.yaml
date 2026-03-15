@@ -1,0 +1,66 @@
+# ScraperUniversale - Configurazione
+# Copia questo file e modifica i parametri per il tuo uso
+
+# Fonti dati da utilizzare
+sources:
+  - europages
+  - kompass
+
+# Filtri di ricerca
+search:
+  keywords:
+    - "manufacturing"
+    - "energy"
+    - "industrial"
+  countries:
+    - "Italy"
+    - "Germany"
+    - "France"
+    - "Spain"
+  # Massimo risultati per fonte (0 = illimitato)
+  max_results: 0
+
+# Arricchimento email
+email_enrichment:
+  enabled: true
+  # Timeout per singolo sito web (secondi)
+  timeout: 10
+  # Pagine da controllare per email
+  paths:
+    - "/contact"
+    - "/contacts"
+    - "/contatti"
+    - "/kontakt"
+    - "/about"
+    - "/impressum"
+    - "/about-us"
+    - "/chi-siamo"
+
+# Proxy (opzionale)
+proxy:
+  enabled: false
+  # Lista proxy, uno per riga, formato: http://user:pass@host:port
+  list: []
+  # Rotazione: round_robin | random
+  rotation: round_robin
+
+# Rate limiting
+rate_limit:
+  # Delay tra richieste in secondi (min, max per randomizzazione)
+  delay_min: 1.0
+  delay_max: 3.0
+  # Delay aggiuntivo dopo errore 429
+  backoff_base: 5.0
+  # Max retry per richiesta
+  max_retries: 3
+
+# Export
+export:
+  format: csv  # csv | json | excel
+  output_dir: ./output
+  # Deduplicazione basata su nome + citta
+  deduplicate: true
+
+# Logging
+logging:
+  level: INFO  # DEBUG | INFO | WARNING | ERROR
