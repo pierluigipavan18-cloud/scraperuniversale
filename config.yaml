@@ -2,9 +2,14 @@
 # Copia questo file e modifica i parametri per il tuo uso
 
 # Fonti dati da utilizzare
+# Disponibili: europages, kompass, wlw, industrystock, paginegialle, csea_energivori
 sources:
   - europages
   - kompass
+  - wlw
+  - industrystock
+  # - paginegialle      # Solo Italia
+  # - csea_energivori   # Lista ufficiale energivori italiani
 
 # Filtri di ricerca
 search:

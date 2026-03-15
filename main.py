@@ -2,7 +2,9 @@
 """ScraperUniversale - Enterprise B2B Company Data Scraper.
 
 Extracts company data (name, city, email, phone, website) from
-Europages and Kompass directories with email enrichment.
+multiple B2B directories with email enrichment.
+
+Sources: Europages, Kompass, wlw.de, IndustryStock, PagineGialle, CSEA Energivori
 """
 
 from __future__ import annotations
@@ -18,16 +20,23 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
+from rich.panel import Panel
 
 from scraper.engine import ScraperEngine
 from scraper.europages import EuropagesScraper
 from scraper.kompass import KompassScraper
+from scraper.wlw import WLWScraper
+from scraper.industrystock import IndustryStockScraper
+from scraper.paginegialle import PagineGialleScraper
+from scraper.csea_energivori import CSEAEnerivogiScraper
 from scraper.email_enricher import EmailEnricher
 from scraper.models import Company
 from export.dedup import clean_companies
 from export.exporter import export
 
 console = Console()
+
+ALL_SOURCES = ["europages", "kompass", "wlw", "industrystock", "paginegialle", "csea_energivori"]
 
 
 def load_config(path: str) -> dict:
@@ -48,6 +57,24 @@ def setup_logging(level: str = "INFO") -> None:
         datefmt="[%X]",
         handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
     )
+
+
+def _create_scraper(source: str, engine: ScraperEngine, countries: list[str], max_results: int):
+    """Factory: create the right scraper for a given source name."""
+    if source == "europages":
+        return EuropagesScraper(engine, countries, max_results)
+    elif source == "kompass":
+        return KompassScraper(engine, countries, max_results)
+    elif source == "wlw":
+        return WLWScraper(engine, countries, max_results)
+    elif source == "industrystock":
+        return IndustryStockScraper(engine, countries, max_results)
+    elif source == "paginegialle":
+        return PagineGialleScraper(engine, locations=countries, max_results=max_results)
+    elif source == "csea_energivori":
+        return CSEAEnerivogiScraper(engine, max_results=max_results)
+    else:
+        raise ValueError(f"Unknown source: {source}")
 
 
 async def run_scraper(args: argparse.Namespace, config: dict) -> None:
@@ -76,6 +103,19 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
         max_retries=rate_cfg.get("max_retries", 3),
     )
 
+    # Show config summary
+    config_table = Table(title="Scraper Configuration", show_header=False)
+    config_table.add_column("Key", style="cyan")
+    config_table.add_column("Value", style="white")
+    config_table.add_row("Sources", ", ".join(sources))
+    config_table.add_row("Keywords", ", ".join(keywords))
+    config_table.add_row("Countries", ", ".join(countries))
+    config_table.add_row("Max results", str(max_results) if max_results > 0 else "unlimited")
+    config_table.add_row("Email enrichment", "ON" if email_cfg.get("enabled", True) else "OFF")
+    config_table.add_row("Proxies", str(len(proxies)) if proxies else "none")
+    console.print(config_table)
+    console.print()
+
     all_companies: list[Company] = []
 
     with Progress(
@@ -87,28 +127,22 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
     ) as progress:
         # Scrape each source
         for source in sources:
+            scraper = _create_scraper(source, engine, countries, max_results)
+
             for keyword in keywords:
                 task_id = progress.add_task(
                     f"[cyan]{source}[/cyan] - '{keyword}'",
                     total=max_results or None,
                 )
 
-                if source == "europages":
-                    scraper = EuropagesScraper(engine, countries, max_results)
-                    async for company in scraper.search(keyword):
-                        all_companies.append(company)
-                        progress.update(task_id, advance=1)
-
-                elif source == "kompass":
-                    scraper = KompassScraper(engine, countries, max_results)
-                    async for company in scraper.search(keyword):
-                        all_companies.append(company)
-                        progress.update(task_id, advance=1)
+                async for company in scraper.search(keyword):
+                    all_companies.append(company)
+                    progress.update(task_id, advance=1)
 
                 progress.update(task_id, completed=True)
 
         # Email enrichment
-        if email_cfg.get("enabled", True):
+        if email_cfg.get("enabled", True) and not args.no_enrich:
             companies_without_email = [c for c in all_companies if not c.email and c.website]
             if companies_without_email:
                 enricher = EmailEnricher(
@@ -139,6 +173,7 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
     with_email = sum(1 for c in all_companies if c.email)
     with_phone = sum(1 for c in all_companies if c.phone)
     with_website = sum(1 for c in all_companies if c.website)
+    sources_used = set(c.source for c in all_companies)
 
     stats = Table(title="Results Summary")
     stats.add_column("Metric", style="cyan")
@@ -147,8 +182,23 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
     stats.add_row("With email", f"{with_email} ({100*with_email//max(len(all_companies),1)}%)")
     stats.add_row("With phone", f"{with_phone} ({100*with_phone//max(len(all_companies),1)}%)")
     stats.add_row("With website", f"{with_website} ({100*with_website//max(len(all_companies),1)}%)")
+    stats.add_row("Sources hit", ", ".join(sources_used))
     stats.add_row("HTTP requests", str(engine.request_count))
     console.print(stats)
+
+    # Per-source breakdown
+    source_counts = {}
+    for c in all_companies:
+        source_counts[c.source] = source_counts.get(c.source, 0) + 1
+    if len(source_counts) > 1:
+        breakdown = Table(title="Per-Source Breakdown")
+        breakdown.add_column("Source", style="cyan")
+        breakdown.add_column("Companies", style="green")
+        breakdown.add_column("With Email", style="yellow")
+        for src, cnt in sorted(source_counts.items(), key=lambda x: -x[1]):
+            src_email = sum(1 for c in all_companies if c.source == src and c.email)
+            breakdown.add_row(src, str(cnt), f"{src_email} ({100*src_email//max(cnt,1)}%)")
+        console.print(breakdown)
 
     # Export
     fmt = args.format or export_cfg.get("format", "csv")
@@ -159,12 +209,23 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ScraperUniversale - B2B Company Data Scraper",
+        description="ScraperUniversale - B2B Company Data Scraper (6 sources)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Sources available:
+  europages       2.6M+ EU B2B companies (best email coverage)
+  kompass         57M+ companies in 70+ countries (NACE classification)
+  wlw             600K+ DACH manufacturers/suppliers
+  industrystock   300K+ verified industrial companies
+  paginegialle    Italian Yellow Pages (full Italy coverage)
+  csea_energivori Official Italian energy-intensive companies registry (~4000)
+
 Examples:
   %(prog)s -k manufacturing energy -c Italy Germany
   %(prog)s -k "solar panels" -s europages --max 100 -f excel
+  %(prog)s -s csea_energivori -f excel
+  %(prog)s -k "steel" -s europages kompass wlw industrystock -c Italy Germany
+  %(prog)s -k "produzione" -s paginegialle -c Milano Roma Torino
   %(prog)s --config my_config.yaml -k "steel production"
         """,
     )
@@ -177,12 +238,12 @@ Examples:
     parser.add_argument(
         "-c", "--countries",
         nargs="+",
-        help="Target countries (e.g., Italy Germany France)",
+        help="Target countries/locations (e.g., Italy Germany France)",
     )
     parser.add_argument(
         "-s", "--sources",
         nargs="+",
-        choices=["europages", "kompass"],
+        choices=ALL_SOURCES,
         help="Data sources to use",
     )
     parser.add_argument(
@@ -227,7 +288,12 @@ Examples:
     if args.no_enrich:
         config.setdefault("email_enrichment", {})["enabled"] = False
 
-    console.print("[bold blue]ScraperUniversale[/bold blue] - B2B Company Data Scraper\n")
+    console.print(Panel.fit(
+        "[bold blue]ScraperUniversale[/bold blue]\n"
+        "[dim]Enterprise B2B Company Data Scraper - 6 Sources[/dim]",
+        border_style="blue",
+    ))
+    console.print()
 
     try:
         asyncio.run(run_scraper(args, config))
