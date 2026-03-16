@@ -77,9 +77,10 @@ class ScraperEngine:
         url: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         """GET request with rate limiting and retries."""
-        return await self._request("GET", url, params=params, headers=headers)
+        return await self._request("GET", url, params=params, headers=headers, timeout=timeout)
 
     async def _request(
         self,
@@ -87,6 +88,7 @@ class ScraperEngine:
         url: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> httpx.Response:
         last_exc: Exception | None = None
@@ -99,9 +101,12 @@ class ScraperEngine:
             if headers:
                 req_headers.update(headers)
 
+            req_timeout = httpx.Timeout(timeout) if timeout else None
+
             try:
                 resp = await client.request(
-                    method, url, params=params, headers=req_headers, **kwargs
+                    method, url, params=params, headers=req_headers,
+                    timeout=req_timeout, **kwargs,
                 )
                 self._request_count += 1
 

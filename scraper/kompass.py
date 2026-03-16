@@ -19,7 +19,6 @@ from .models import Company
 logger = logging.getLogger("scraper.kompass")
 
 BASE_URL = "https://www.kompass.com"
-SEARCH_URL = f"{BASE_URL}/searchCompanies?text={{query}}&page={{page}}"
 
 # Country-specific Kompass domains
 COUNTRY_DOMAINS = {

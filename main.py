@@ -28,7 +28,7 @@ from scraper.kompass import KompassScraper
 from scraper.wlw import WLWScraper
 from scraper.industrystock import IndustryStockScraper
 from scraper.paginegialle import PagineGialleScraper
-from scraper.csea_energivori import CSEAEnerivogiScraper
+from scraper.csea_energivori import CSEAEnergivoriScraper
 from scraper.email_enricher import EmailEnricher
 from scraper.models import Company
 from export.dedup import clean_companies
@@ -70,9 +70,14 @@ def _create_scraper(source: str, engine: ScraperEngine, countries: list[str], ma
     elif source == "industrystock":
         return IndustryStockScraper(engine, countries, max_results)
     elif source == "paginegialle":
-        return PagineGialleScraper(engine, locations=countries, max_results=max_results)
+        # PagineGialle uses Italian city names as locations, not country names.
+        # Filter out generic country names and pass only city-like locations.
+        locations = [c for c in countries if c.lower() not in (
+            "italy", "italia", "germany", "france", "spain", "international",
+        )] or [""]
+        return PagineGialleScraper(engine, locations=locations, max_results=max_results)
     elif source == "csea_energivori":
-        return CSEAEnerivogiScraper(engine, max_results=max_results)
+        return CSEAEnergivoriScraper(engine, max_results=max_results)
     else:
         raise ValueError(f"Unknown source: {source}")
 
@@ -139,7 +144,7 @@ async def run_scraper(args: argparse.Namespace, config: dict) -> None:
                     all_companies.append(company)
                     progress.update(task_id, advance=1)
 
-                progress.update(task_id, completed=True)
+                progress.update(task_id, visible=False)
 
         # Email enrichment
         if email_cfg.get("enabled", True) and not args.no_enrich:

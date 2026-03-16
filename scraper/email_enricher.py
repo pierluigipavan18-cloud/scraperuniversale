@@ -108,7 +108,7 @@ class EmailEnricher:
     async def _extract_emails_from_url(self, url: str) -> set[str]:
         """Fetch a URL and extract email addresses from the HTML."""
         try:
-            resp = await self.engine.get(url)
+            resp = await self.engine.get(url, timeout=self.timeout)
         except Exception as e:
             logger.debug(f"Failed to fetch {url}: {e}")
             return set()

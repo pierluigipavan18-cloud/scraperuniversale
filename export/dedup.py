@@ -23,8 +23,8 @@ def validate_company(company: Company) -> bool:
     """Check if company has minimum required data."""
     if not company.name or len(company.name.strip()) < 2:
         return False
-    # Must have at least city or email or phone
-    if not any([company.city, company.email, company.phone]):
+    # Must have at least one useful field beyond name
+    if not any([company.city, company.email, company.phone, company.vat_id, company.website]):
         return False
     return True
 
